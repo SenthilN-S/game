@@ -77,6 +77,14 @@
             justify-content: space-between;
         }
 
+        .controls-hint {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 4px;
+            font-family: monospace;
+            text-shadow: 1px 1px 0 #000;
+        }
+
         #message-area {
             position: absolute;
             top: 50%;
@@ -114,12 +122,14 @@
                 <div style="background: #333; width: 100%;">
                     <div id="p1-health" class="health-bar p1-bar"></div>
                 </div>
+                <div class="controls-hint">MOVE: WASD &nbsp;|&nbsp; ATK: SPACE</div>
             </div>
             <div class="health-container">
                 <div class="name-tag"><span id="p2-weapon">Axe</span> <span id="p2-name">Knight 2</span></div>
                 <div style="background: #333; width: 100%;">
                     <div id="p2-health" class="health-bar p2-bar"></div>
                 </div>
+                <div class="controls-hint" style="text-align: right;">MOVE: ARROWS &nbsp;|&nbsp; ATK: SHIFT</div>
             </div>
         </div>
         <div id="message-area">
@@ -775,18 +785,22 @@ function drawSelector(playerNum, xCenter, selObj) {
         return;
     }
 
+    // Helper for key names
+    const kColor = playerNum === 1 ? "A / D" : "LEFT / RIGHT";
+    const kWeapon = playerNum === 1 ? "W / S" : "UP / DOWN";
+
     // Color Select
-    ctx.font = "20px MedievalSharp";
+    ctx.font = "16px MedievalSharp";
     ctx.fillStyle = "#aaa";
-    ctx.fillText("< Color >", xCenter, 200);
+    ctx.fillText(`Color [${kColor}]`, xCenter, 200);
     ctx.fillStyle = COLORS[selObj.colorIdx].hex;
     ctx.font = "24px MedievalSharp";
     ctx.fillText(COLORS[selObj.colorIdx].name, xCenter, 230);
 
     // Weapon Select
     ctx.fillStyle = "#aaa";
-    ctx.font = "20px MedievalSharp";
-    ctx.fillText("< Weapon >", xCenter, 300);
+    ctx.font = "16px MedievalSharp";
+    ctx.fillText(`Weapon [${kWeapon}]`, xCenter, 300);
     const wKey = weaponKeys[selObj.weaponIdx];
     const wObj = WEAPONS[wKey];
     ctx.fillStyle = "#fff";
