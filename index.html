@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Medieval Duel: Steel & Valor - A 2D local multiplayer fighting game built with HTML5 Canvas.">
     <title>Medieval Duel: Steel & Valor</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&display=swap');
@@ -132,6 +133,7 @@
 /**
  * MEDIEVAL DUEL: STEEL & VALOR
  * A pure HTML5 Canvas Fighting Game
+ * Final Version 2.0 - With Sound & Fixes
  */
 
 // --- CONFIGURATION ---
@@ -157,6 +159,92 @@ const COLORS = [
     { name: "Gold",    hex: "#FFD700" }
 ];
 
+// --- SOUND MANAGER ---
+const SoundManager = {
+    ctx: null,
+    
+    init: function() {
+        if (!this.ctx) {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    },
+
+    playTone: function(freq, type, duration, vol = 0.1) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    },
+
+    playAttack: function() {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle'; // Sharp sound
+        // Fast sweep for "swing"
+        osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.15);
+        
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.2);
+    },
+
+    playHit: function() {
+        if (!this.ctx) return;
+        // Impact noise approximation
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square'; // Gritty sound
+        osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+        
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.1);
+    },
+
+    playJump: function() {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(300, this.ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.1);
+    },
+
+    playSelect: function() {
+        this.playTone(600, 'sine', 0.05, 0.05);
+    },
+
+    playStart: function() {
+        this.playTone(400, 'square', 0.1, 0.1);
+        setTimeout(() => this.playTone(600, 'square', 0.3, 0.1), 100);
+    }
+};
+
 // --- ENGINE & STATE MANAGEMENT ---
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -179,6 +267,9 @@ const keys = {
 
 // --- INPUT HANDLING ---
 window.addEventListener('keydown', (e) => {
+    // Init Audio Context on first interaction
+    SoundManager.init();
+
     // Prevent scrolling for game keys
     if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].indexOf(e.code) > -1) {
         e.preventDefault();
@@ -217,6 +308,7 @@ window.addEventListener('blur', () => {
 function handleInputOnce(e) {
     if (gameState === 'MENU') {
         if (e.key === 'Enter') {
+            SoundManager.playSelect();
             gameState = 'CHAR_SELECT';
             initCharSelect();
         }
@@ -224,8 +316,10 @@ function handleInputOnce(e) {
         handleCharSelectInput(e);
     } else if (gameState === 'GAME_OVER') {
         if (e.key === 'Enter') {
+            SoundManager.playSelect();
             resetGame();
         } else if (e.key === 'Escape') {
+            SoundManager.playSelect();
             gameState = 'MENU';
         }
     }
@@ -293,6 +387,7 @@ class Fighter {
             if (keys[this.controls.jump] && this.isGrounded) {
                 this.vy = -14;
                 this.isGrounded = false;
+                SoundManager.playJump();
             }
 
             // Crouch
@@ -358,6 +453,7 @@ class Fighter {
     attack() {
         this.isAttacking = true;
         this.attackFrame = 0;
+        SoundManager.playAttack();
     }
 
     checkHit(opponent) {
@@ -389,6 +485,7 @@ class Fighter {
         this.isAttacking = false; // Cancel attack
         this.vx = direction * knockback;
         this.vy = -3; // Pop up slightly
+        SoundManager.playHit();
 
         // Visual flash
         this.color = "#fff";
@@ -403,6 +500,7 @@ class Fighter {
 
     die() {
         this.isDead = true;
+        SoundManager.playTone(100, 'sawtooth', 0.5, 0.2); // Death sound
         endGame(this.isP2 ? "PLAYER 1" : "PLAYER 2");
     }
 
@@ -549,6 +647,7 @@ function initGame() {
     document.getElementById('p2-weapon').innerText = player2.weapon.name;
     
     gameState = 'GAME';
+    SoundManager.playStart();
     uiMsg.style.display = 'none';
     hud.style.display = 'flex';
     updateHud();
@@ -608,22 +707,25 @@ function initCharSelect() {
 }
 
 function handleCharSelectInput(e) {
+    // Convert to lowercase to ensure P1 controls work regardless of CapsLock
+    const key = e.key.toLowerCase();
+    
     // P1 Controls
     if (!p1Sel.ready) {
-        if (e.key === 'a') p1Sel.colorIdx = (p1Sel.colorIdx - 1 + COLORS.length) % COLORS.length;
-        if (e.key === 'd') p1Sel.colorIdx = (p1Sel.colorIdx + 1) % COLORS.length;
-        if (e.key === 'w') p1Sel.weaponIdx = (p1Sel.weaponIdx - 1 + weaponKeys.length) % weaponKeys.length;
-        if (e.key === 's') p1Sel.weaponIdx = (p1Sel.weaponIdx + 1) % weaponKeys.length;
-        if (e.key === ' ') p1Sel.ready = true;
+        if (key === 'a') { p1Sel.colorIdx = (p1Sel.colorIdx - 1 + COLORS.length) % COLORS.length; SoundManager.playSelect(); }
+        if (key === 'd') { p1Sel.colorIdx = (p1Sel.colorIdx + 1) % COLORS.length; SoundManager.playSelect(); }
+        if (key === 'w') { p1Sel.weaponIdx = (p1Sel.weaponIdx - 1 + weaponKeys.length) % weaponKeys.length; SoundManager.playSelect(); }
+        if (key === 's') { p1Sel.weaponIdx = (p1Sel.weaponIdx + 1) % weaponKeys.length; SoundManager.playSelect(); }
+        if (key === ' ') { p1Sel.ready = true; SoundManager.playSelect(); }
     }
 
     // P2 Controls
     if (!p2Sel.ready) {
-        if (e.key === 'ArrowLeft') p2Sel.colorIdx = (p2Sel.colorIdx - 1 + COLORS.length) % COLORS.length;
-        if (e.key === 'ArrowRight') p2Sel.colorIdx = (p2Sel.colorIdx + 1) % COLORS.length;
-        if (e.key === 'ArrowUp') p2Sel.weaponIdx = (p2Sel.weaponIdx - 1 + weaponKeys.length) % weaponKeys.length;
-        if (e.key === 'ArrowDown') p2Sel.weaponIdx = (p2Sel.weaponIdx + 1) % weaponKeys.length;
-        if (e.key === 'Shift') p2Sel.ready = true;
+        if (key === 'arrowleft') { p2Sel.colorIdx = (p2Sel.colorIdx - 1 + COLORS.length) % COLORS.length; SoundManager.playSelect(); }
+        if (key === 'arrowright') { p2Sel.colorIdx = (p2Sel.colorIdx + 1) % COLORS.length; SoundManager.playSelect(); }
+        if (key === 'arrowup') { p2Sel.weaponIdx = (p2Sel.weaponIdx - 1 + weaponKeys.length) % weaponKeys.length; SoundManager.playSelect(); }
+        if (key === 'arrowdown') { p2Sel.weaponIdx = (p2Sel.weaponIdx + 1) % weaponKeys.length; SoundManager.playSelect(); }
+        if (key === 'shift') { p2Sel.ready = true; SoundManager.playSelect(); }
     }
 
     // Start Check
