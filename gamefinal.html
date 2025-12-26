@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Medieval Duel: Steel & Valor - A 2D local multiplayer fighting game built with HTML5 Canvas.">
+    <title>Medieval Duel: Steel & Valor</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'MedievalSharp', cursive;
+            color: #d4af37; /* Gold */
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+            border: 4px solid #4a4a4a;
+        }
+
+        canvas {
+            display: block;
+            background: #333;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .health-container {
+            width: 40%;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #555;
+            padding: 5px;
+            position: relative;
+        }
+
+        .health-bar {
+            height: 20px;
+            width: 100%;
+            background: #8b0000;
+            transition: width 0.1s linear;
+        }
+
+        .p1-bar { background: #b22222; }
+        .p2-bar { background: #b22222; float: right; }
+        
+        .name-tag {
+            color: #fff;
+            margin-bottom: 5px;
+            font-size: 18px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #message-area {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+        }
+
+        h1 { font-size: 60px; margin: 0; color: #f4d03f; text-shadow: 4px 4px 0 #000; }
+        h2 { font-size: 30px; color: #fff; text-shadow: 2px 2px 0 #000; }
+        p { font-size: 20px; color: #ccc; text-shadow: 1px 1px 0 #000; }
+
+        .key {
+            display: inline-block;
+            background: #444;
+            border: 1px solid #777;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: monospace;
+            font-size: 14px;
+            color: #fff;
+            box-shadow: 0 2px 0 #222;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="1024" height="576"></canvas>
+    <div id="ui-layer">
+        <div class="hud" id="hud" style="display: none;">
+            <div class="health-container">
+                <div class="name-tag"><span id="p1-name">Knight 1</span> <span id="p1-weapon">Sword</span></div>
+                <div style="background: #333; width: 100%;">
+                    <div id="p1-health" class="health-bar p1-bar"></div>
+                </div>
+            </div>
+            <div class="health-container">
+                <div class="name-tag"><span id="p2-weapon">Axe</span> <span id="p2-name">Knight 2</span></div>
+                <div style="background: #333; width: 100%;">
+                    <div id="p2-health" class="health-bar p2-bar"></div>
+                </div>
+            </div>
+        </div>
+        <div id="message-area">
+            <h1 id="main-msg"></h1>
+            <h2 id="sub-msg"></h2>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * MEDIEVAL DUEL: STEEL & VALOR
+ * A pure HTML5 Canvas Fighting Game
+ * Final Version
+ */
+
+// --- CONFIGURATION ---
+const CANVAS_WIDTH = 1024;
+const CANVAS_HEIGHT = 576;
+const GROUND_Y = 480;
+const GRAVITY = 0.6;
+const FRICTION = 0.85;
+
+// Weapon Stats
+const WEAPONS = {
+    SWORD:  { name: "Sword",  dmg: 10, range: 60,  speed: 20, cooldown: 30, knockback: 10, color: "#C0C0C0" }, // Balanced
+    AXE:    { name: "Axe",    dmg: 18, range: 45,  speed: 35, cooldown: 50, knockback: 25, color: "#708090" }, // Heavy
+    SPEAR:  { name: "Spear",  dmg: 8,  range: 90,  speed: 15, cooldown: 25, knockback: 8,  color: "#8B4513" }, // Long range
+    DAGGER: { name: "Dagger", dmg: 5,  range: 30,  speed: 10, cooldown: 15, knockback: 2,  color: "#2F4F4F" }  // Fast
+};
+
+const COLORS = [
+    { name: "Crimson", hex: "#DC143C" },
+    { name: "Azure",   hex: "#1E90FF" },
+    { name: "Emerald", hex: "#2E8B57" },
+    { name: "Onyx",    hex: "#2F2F2F" },
+    { name: "Gold",    hex: "#FFD700" }
+];
+
+// --- ENGINE & STATE MANAGEMENT ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const uiMsg = document.getElementById('message-area');
+const hud = document.getElementById('hud');
+const mainMsg = document.getElementById('main-msg');
+const subMsg = document.getElementById('sub-msg');
+const p1HealthBar = document.getElementById('p1-health');
+const p2HealthBar = document.getElementById('p2-health');
+
+let gameState = 'MENU'; // MENU, CHAR_SELECT, GAME, GAME_OVER
+let frame = 0;
+
+const keys = {
+    a: false, d: false, w: false, s: false, space: false,
+    ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, 
+    Shift: false, // Generic Shift for P2 Attack
+    Enter: false, Escape: false
+};
+
+// --- INPUT HANDLING ---
+window.addEventListener('keydown', (e) => {
+    // Prevent scrolling for game keys
+    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].indexOf(e.code) > -1) {
+        e.preventDefault();
+    }
+    
+    // Robust Key Tracking
+    if (e.code === 'Space') keys.space = true;
+    if (e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.Shift = true;
+    
+    // Handle WASD case-insensitivity (Fixes CapsLock stuck movement)
+    let key = e.key;
+    if (key.length === 1) key = key.toLowerCase();
+
+    if (keys.hasOwnProperty(key)) keys[key] = true; 
+    if (keys.hasOwnProperty(e.code)) keys[e.code] = true;
+    
+    handleInputOnce(e);
+});
+
+window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') keys.space = false;
+    if (e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.Shift = false;
+    
+    let key = e.key;
+    if (key.length === 1) key = key.toLowerCase();
+
+    if (keys.hasOwnProperty(key)) keys[key] = false;
+    if (keys.hasOwnProperty(e.code)) keys[e.code] = false;
+});
+
+// Clear keys on focus loss (prevents stuck movement if user alt-tabs)
+window.addEventListener('blur', () => {
+    Object.keys(keys).forEach(k => keys[k] = false);
+});
+
+function handleInputOnce(e) {
+    if (gameState === 'MENU') {
+        if (e.key === 'Enter') {
+            gameState = 'CHAR_SELECT';
+            initCharSelect();
+        }
+    } else if (gameState === 'CHAR_SELECT') {
+        handleCharSelectInput(e);
+    } else if (gameState === 'GAME_OVER') {
+        if (e.key === 'Enter') {
+            resetGame();
+        } else if (e.key === 'Escape') {
+            gameState = 'MENU';
+        }
+    }
+}
+
+// --- CLASSES ---
+
+class Fighter {
+    constructor(x, color, controls, isP2 = false) {
+        this.x = x;
+        this.y = 100;
+        this.width = 50;
+        this.height = 100;
+        this.vx = 0;
+        this.vy = 0;
+        this.color = color;
+        this.baseColor = color;
+        this.isP2 = isP2;
+        this.controls = controls; // {left, right, jump, crouch, attack}
+        
+        this.health = 100;
+        this.weapon = WEAPONS.SWORD; // Default
+        this.direction = isP2 ? -1 : 1; // 1 = right, -1 = left
+        
+        this.isGrounded = false;
+        this.isAttacking = false;
+        this.isCrouching = false;
+        this.isHit = false;
+        this.isDead = false;
+        
+        this.attackCooldown = 0;
+        this.attackFrame = 0;
+        this.hitStun = 0;
+    }
+
+    update(opponent) {
+        if (this.isDead) return;
+
+        // Hit Stun
+        if (this.hitStun > 0) {
+            this.hitStun--;
+            this.vx *= 0.8; // Slide a bit
+            this.applyPhysics();
+            return;
+        }
+
+        // Cooldowns
+        if (this.attackCooldown > 0) this.attackCooldown--;
+
+        // Movement
+        this.vx = 0;
+        
+        // Attack Lock (cannot move while attacking)
+        if (!this.isAttacking) {
+            if (keys[this.controls.left]) {
+                this.vx = -5;
+                this.direction = -1;
+            }
+            if (keys[this.controls.right]) {
+                this.vx = 5;
+                this.direction = 1;
+            }
+            
+            // Jump
+            if (keys[this.controls.jump] && this.isGrounded) {
+                this.vy = -14;
+                this.isGrounded = false;
+            }
+
+            // Crouch
+            this.isCrouching = keys[this.controls.crouch];
+        }
+
+        // Attack Trigger
+        if (keys[this.controls.attack] && this.attackCooldown === 0 && !this.isAttacking && !this.isCrouching) {
+            this.attack();
+        }
+
+        // Attack Logic
+        if (this.isAttacking) {
+            this.attackFrame++;
+            // Hitbox active frame
+            if (this.attackFrame === Math.floor(this.weapon.speed / 2)) {
+                this.checkHit(opponent);
+            }
+            // End attack
+            if (this.attackFrame >= this.weapon.speed) {
+                this.isAttacking = false;
+                this.attackCooldown = this.weapon.cooldown;
+            }
+        }
+
+        this.applyPhysics();
+        this.resolveCollisions(opponent);
+    }
+
+    applyPhysics() {
+        this.vy += GRAVITY;
+        this.y += this.vy;
+        this.x += this.vx;
+
+        // Ground Collision
+        if (this.y + this.height >= GROUND_Y) {
+            this.y = GROUND_Y - this.height;
+            this.vy = 0;
+            this.isGrounded = true;
+        }
+
+        // Wall Collision
+        if (this.x < 0) this.x = 0;
+        if (this.x + this.width > CANVAS_WIDTH) this.x = CANVAS_WIDTH - this.width;
+    }
+
+    resolveCollisions(opponent) {
+        // Simple body push
+        if (this.x < opponent.x + opponent.width &&
+            this.x + this.width > opponent.x &&
+            this.y < opponent.y + opponent.height &&
+            this.y + this.height > opponent.y) {
+            
+            // Push away
+            let overlap = (this.width + opponent.width) / 2 - Math.abs((this.x + this.width/2) - (opponent.x + opponent.width/2));
+            if (overlap > 0) {
+                if (this.x < opponent.x) this.x -= overlap/2;
+                else this.x += overlap/2;
+            }
+        }
+    }
+
+    attack() {
+        this.isAttacking = true;
+        this.attackFrame = 0;
+    }
+
+    checkHit(opponent) {
+        // Calculate Attack Hitbox
+        // Originating from center of player, extending in direction
+        const reach = this.weapon.range;
+        const hitX = this.direction === 1 ? this.x + this.width : this.x - reach;
+        const hitY = this.y + 20; // Attack height
+        const hitW = reach;
+        const hitH = 60; // Attack vertical sweep
+
+        // Check intersection with opponent body
+        if (hitX < opponent.x + opponent.width &&
+            hitX + hitW > opponent.x &&
+            hitY < opponent.y + opponent.height &&
+            hitY + hitH > opponent.y) {
+            
+            if (!opponent.isDead) {
+                opponent.takeDamage(this.weapon.dmg, this.direction, this.weapon.knockback);
+            }
+        }
+    }
+
+    takeDamage(amount, direction, knockback) {
+        if (this.isCrouching) amount = Math.floor(amount / 2); // Block damage? or just reduce
+        
+        this.health -= amount;
+        this.hitStun = 15; // Frames unable to move
+        this.isAttacking = false; // Cancel attack
+        this.vx = direction * knockback;
+        this.vy = -3; // Pop up slightly
+
+        // Visual flash
+        this.color = "#fff";
+        setTimeout(() => this.color = this.baseColor, 100);
+
+        if (this.health <= 0) {
+            this.health = 0;
+            this.die();
+        }
+        updateHud();
+    }
+
+    die() {
+        this.isDead = true;
+        endGame(this.isP2 ? "PLAYER 1" : "PLAYER 2");
+    }
+
+    draw() {
+        ctx.save();
+        
+        // Flip canvas for facing direction
+        ctx.translate(this.x + this.width/2, this.y + this.height/2);
+        ctx.scale(this.direction, 1);
+        
+        // --- DRAW CHARACTER ---
+        
+        // Legs
+        ctx.fillStyle = "#111";
+        ctx.fillRect(-15, 20, 10, 30); // Back leg
+        
+        if (Math.abs(this.vx) > 0 && this.isGrounded) {
+             // Simple walk cycle
+             const walkOffset = Math.sin(frame * 0.2) * 10;
+             ctx.fillRect(5 + walkOffset, 20, 10, 30);
+        } else {
+             ctx.fillRect(5, 20, 10, 30); // Front leg
+        }
+
+        // Torso/Armor
+        ctx.fillStyle = this.color;
+        if (this.isCrouching) {
+            ctx.fillRect(-20, 0, 40, 30); // Squashed
+        } else {
+            ctx.fillRect(-20, -20, 40, 50); // Upright
+        }
+
+        // Head/Helmet
+        ctx.fillStyle = "#555"; // Helmet color
+        let headY = this.isCrouching ? -10 : -40;
+        ctx.beginPath();
+        ctx.arc(0, headY, 15, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Helmet Visor
+        ctx.fillStyle = "#000";
+        ctx.fillRect(2, headY - 2, 10, 4);
+
+        // Plume
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.moveTo(-5, headY - 15);
+        ctx.lineTo(-15, headY - 5);
+        ctx.lineTo(0, headY - 10);
+        ctx.fill();
+
+        // Arms
+        ctx.fillStyle = "#333";
+        ctx.fillRect(-5, -15, 10, 25);
+
+        // --- DRAW WEAPON ---
+        ctx.save();
+        // Weapon Animation Rotation
+        let rot = 0;
+        let wx = 5;
+        let wy = 0;
+
+        if (this.isAttacking) {
+            // Swing animation
+            const progress = this.attackFrame / this.weapon.speed;
+            if (this.weapon.name === "Spear") {
+                // Thrust
+                wx += progress < 0.5 ? progress * 60 : (1-progress) * 60;
+            } else {
+                // Swing
+                rot = (progress * Math.PI) - (Math.PI / 4);
+            }
+        } else {
+            rot = -Math.PI / 4; // Idle weapon angle
+        }
+
+        ctx.translate(wx, wy);
+        ctx.rotate(rot);
+
+        // Draw Specific Weapon
+        ctx.fillStyle = this.weapon.color;
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
+
+        if (this.weapon.name === "Sword") {
+            ctx.fillRect(0, -2, 40, 4); // Blade
+            ctx.fillStyle = "#4a3c31";
+            ctx.fillRect(-10, -2, 10, 4); // Handle
+            ctx.fillStyle = "#gold";
+            ctx.fillRect(0, -6, 4, 12); // Guard
+        } else if (this.weapon.name === "Axe") {
+            ctx.fillStyle = "#4a3c31";
+            ctx.fillRect(-10, -2, 40, 4); // Handle
+            ctx.fillStyle = "#708090";
+            ctx.beginPath();
+            ctx.arc(25, 0, 15, -Math.PI/2, Math.PI/2); // Blade curve
+            ctx.lineTo(25, -10);
+            ctx.fill();
+        } else if (this.weapon.name === "Spear") {
+            ctx.fillStyle = "#4a3c31";
+            ctx.fillRect(-10, -1, 70, 2); // Shaft
+            ctx.fillStyle = "#silver";
+            ctx.beginPath();
+            ctx.moveTo(60, -3);
+            ctx.lineTo(80, 0);
+            ctx.lineTo(60, 3);
+            ctx.fill();
+        } else if (this.weapon.name === "Dagger") {
+             ctx.fillRect(0, -1, 15, 2);
+             ctx.fillStyle = "#4a3c31";
+             ctx.fillRect(-5, -1, 5, 2);
+        }
+
+        ctx.restore();
+        ctx.restore();
+    }
+}
+
+// --- GAME LOGIC ---
+
+let player1, player2;
+
+// Selection State
+let p1Sel = { colorIdx: 0, weaponIdx: 0, ready: false };
+let p2Sel = { colorIdx: 1, weaponIdx: 1, ready: false };
+const weaponKeys = Object.keys(WEAPONS);
+
+function initGame() {
+    // Controls mapping
+    const p1Controls = { left: 'a', right: 'd', jump: 'w', crouch: 's', attack: 'space' };
+    // Changed attack to generic 'Shift' to allow both Left and Right Shift
+    const p2Controls = { left: 'ArrowLeft', right: 'ArrowRight', jump: 'ArrowUp', crouch: 'ArrowDown', attack: 'Shift' };
+
+    player1 = new Fighter(100, COLORS[p1Sel.colorIdx].hex, p1Controls, false);
+    player1.weapon = WEAPONS[weaponKeys[p1Sel.weaponIdx]];
+    
+    player2 = new Fighter(800, COLORS[p2Sel.colorIdx].hex, p2Controls, true);
+    player2.weapon = WEAPONS[weaponKeys[p2Sel.weaponIdx]];
+
+    // UI Setup
+    document.getElementById('p1-name').innerText = "Player 1";
+    document.getElementById('p2-name').innerText = "Player 2";
+    document.getElementById('p1-weapon').innerText = player1.weapon.name;
+    document.getElementById('p2-weapon').innerText = player2.weapon.name;
+    
+    gameState = 'GAME';
+    uiMsg.style.display = 'none';
+    hud.style.display = 'flex';
+    updateHud();
+    gameLoop();
+}
+
+function updateHud() {
+    p1HealthBar.style.width = player1.health + "%";
+    p2HealthBar.style.width = player2.health + "%";
+}
+
+function endGame(winner) {
+    gameState = 'GAME_OVER';
+    mainMsg.innerText = winner + " WINS!";
+    subMsg.innerText = "Press ENTER to Restart | ESC for Menu";
+    uiMsg.style.display = 'block';
+}
+
+function resetGame() {
+    initGame();
+}
+
+// --- MENUS & RENDERING ---
+
+function drawMenu() {
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(0,0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    
+    // Background Art
+    drawBackground();
+
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(0,0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#f4d03f";
+    ctx.font = "80px MedievalSharp";
+    ctx.fillText("Medieval Duel", CANVAS_WIDTH/2, 200);
+    ctx.font = "40px MedievalSharp";
+    ctx.fillStyle = "#fff";
+    ctx.fillText("Steel & Valor", CANVAS_WIDTH/2, 260);
+
+    ctx.font = "24px MedievalSharp";
+    ctx.fillStyle = "#ccc";
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+        ctx.fillText("Press ENTER to Start", CANVAS_WIDTH/2, 400);
+    }
+    
+    ctx.font = "16px monospace";
+    ctx.fillStyle = "#888";
+    ctx.fillText("P1: WASD + SPACE  |  P2: ARROWS + R-SHIFT", CANVAS_WIDTH/2, 550);
+}
+
+function initCharSelect() {
+    p1Sel = { colorIdx: 0, weaponIdx: 0, ready: false };
+    p2Sel = { colorIdx: 1, weaponIdx: 1, ready: false };
+}
+
+function handleCharSelectInput(e) {
+    // P1 Controls
+    if (!p1Sel.ready) {
+        if (e.key === 'a') p1Sel.colorIdx = (p1Sel.colorIdx - 1 + COLORS.length) % COLORS.length;
+        if (e.key === 'd') p1Sel.colorIdx = (p1Sel.colorIdx + 1) % COLORS.length;
+        if (e.key === 'w') p1Sel.weaponIdx = (p1Sel.weaponIdx - 1 + weaponKeys.length) % weaponKeys.length;
+        if (e.key === 's') p1Sel.weaponIdx = (p1Sel.weaponIdx + 1) % weaponKeys.length;
+        if (e.key === ' ') p1Sel.ready = true;
+    }
+
+    // P2 Controls
+    if (!p2Sel.ready) {
+        if (e.key === 'ArrowLeft') p2Sel.colorIdx = (p2Sel.colorIdx - 1 + COLORS.length) % COLORS.length;
+        if (e.key === 'ArrowRight') p2Sel.colorIdx = (p2Sel.colorIdx + 1) % COLORS.length;
+        if (e.key === 'ArrowUp') p2Sel.weaponIdx = (p2Sel.weaponIdx - 1 + weaponKeys.length) % weaponKeys.length;
+        if (e.key === 'ArrowDown') p2Sel.weaponIdx = (p2Sel.weaponIdx + 1) % weaponKeys.length;
+        if (e.key === 'Shift') p2Sel.ready = true;
+    }
+
+    // Start Check
+    if (p1Sel.ready && p2Sel.ready) {
+        // Prevent same color? 
+        if (p1Sel.colorIdx === p2Sel.colorIdx) {
+            // Auto shift p2 if conflict, just for UX speed
+            p2Sel.colorIdx = (p2Sel.colorIdx + 1) % COLORS.length;
+        }
+        setTimeout(initGame, 500);
+    }
+}
+
+function drawCharSelect() {
+    ctx.fillStyle = "#222";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff";
+    ctx.font = "40px MedievalSharp";
+    ctx.fillText("Prepare for Battle", CANVAS_WIDTH/2, 50);
+
+    // Split Screen UI
+    drawSelector(1, 250, p1Sel);
+    drawSelector(2, 774, p2Sel);
+
+    if (p1Sel.ready && p2Sel.ready) {
+        ctx.fillStyle = "yellow";
+        ctx.fillText("BATTLE STARTS...", CANVAS_WIDTH/2, 500);
+    }
+}
+
+function drawSelector(playerNum, xCenter, selObj) {
+    ctx.fillStyle = selObj.ready ? "#333" : "#444";
+    ctx.fillRect(xCenter - 150, 100, 300, 400);
+    ctx.strokeStyle = selObj.ready ? "#0f0" : "#fff";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(xCenter - 150, 100, 300, 400);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "30px MedievalSharp";
+    ctx.fillText(`Player ${playerNum}`, xCenter, 140);
+    
+    if (selObj.ready) {
+        ctx.fillStyle = "#0f0";
+        ctx.fillText("READY", xCenter, 300);
+        return;
+    }
+
+    // Color Select
+    ctx.font = "20px MedievalSharp";
+    ctx.fillStyle = "#aaa";
+    ctx.fillText("< Color >", xCenter, 200);
+    ctx.fillStyle = COLORS[selObj.colorIdx].hex;
+    ctx.font = "24px MedievalSharp";
+    ctx.fillText(COLORS[selObj.colorIdx].name, xCenter, 230);
+
+    // Weapon Select
+    ctx.fillStyle = "#aaa";
+    ctx.font = "20px MedievalSharp";
+    ctx.fillText("< Weapon >", xCenter, 300);
+    const wKey = weaponKeys[selObj.weaponIdx];
+    const wObj = WEAPONS[wKey];
+    ctx.fillStyle = "#fff";
+    ctx.font = "24px MedievalSharp";
+    ctx.fillText(wObj.name, xCenter, 330);
+    
+    // Stats
+    ctx.font = "16px monospace";
+    ctx.fillStyle = "#888";
+    ctx.fillText(`DMG: ${wObj.dmg}  SPD: ${wObj.speed}`, xCenter, 360);
+    ctx.fillText(`RNG: ${wObj.range}  KB:  ${wObj.knockback}`, xCenter, 380);
+
+    // Instructions
+    ctx.fillStyle = "#f4d03f";
+    ctx.font = "16px MedievalSharp";
+    const atkKey = playerNum === 1 ? "SPACE" : "SHIFT"; // Updated text to just SHIFT
+    ctx.fillText(`Press ${atkKey} to Confirm`, xCenter, 460);
+}
+
+function drawBackground() {
+    // Sky
+    let grad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+    grad.addColorStop(0, "#2c3e50");
+    grad.addColorStop(1, "#4ca1af");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Castle Silhouette
+    ctx.fillStyle = "#1a1a2e";
+    ctx.beginPath();
+    ctx.moveTo(100, GROUND_Y);
+    ctx.lineTo(100, 300); // Tower L
+    ctx.lineTo(150, 300);
+    ctx.lineTo(150, 350);
+    ctx.lineTo(250, 350); // Wall
+    ctx.lineTo(250, 250); // Keep
+    ctx.lineTo(350, 250);
+    ctx.lineTo(350, GROUND_Y);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(800, GROUND_Y);
+    ctx.lineTo(800, 280); // Tower R
+    ctx.lineTo(860, 280);
+    ctx.lineTo(860, GROUND_Y);
+    ctx.fill();
+
+    // Ground
+    ctx.fillStyle = "#3e2723"; // Dirt
+    ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+    
+    // Stone pattern
+    ctx.fillStyle = "#5d4037";
+    for(let i=0; i<CANVAS_WIDTH; i+=60) {
+        ctx.fillRect(i, GROUND_Y, 55, 30);
+        ctx.fillRect(i+30, GROUND_Y+30, 55, 30);
+        ctx.fillRect(i, GROUND_Y+60, 55, 30);
+    }
+}
+
+function gameLoop() {
+    frame++;
+
+    // Clear
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    if (gameState === 'MENU') {
+        drawMenu();
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    if (gameState === 'CHAR_SELECT') {
+        drawCharSelect();
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    // Draw Game World
+    drawBackground();
+
+    if (gameState === 'GAME' || gameState === 'GAME_OVER') {
+        // Logic (only if game is active)
+        if (gameState === 'GAME') {
+            player1.update(player2);
+            player2.update(player1);
+        }
+
+        // Render Characters
+        player1.draw();
+        player2.draw();
+        
+        // Render HUD (UI layer handles bars, we draw text prompts if needed)
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Start
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
